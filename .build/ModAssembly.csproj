@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>ModAssembly</AssemblyName>
+    <RootNamespace>MusicBoxMod</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DisableImplicitNamespaceImports>true</DisableImplicitNamespaceImports>
+    <!-- 宿主程序集引用与 PVZHostDir 检查见同目录的 Directory.Build.props -->
+    <NeedsPVZHostRefs>true</NeedsPVZHostRefs>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Scripts\MusicBoxEntry.cs" />
+  </ItemGroup>
+
+</Project>

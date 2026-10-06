@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 2,
+  "id": "MusicBox",
+  "name": "音乐盒",
+  "version": "1.2.2.5",
+  "author": "百合小希",
+  "description": "本模组支持更换游戏部分场景的背景音乐，并修复了原版的一些场景音乐问题。",
+  "playInstructions": "本模组不自带音乐，换背景音乐只要下面几步：\n1. 把音频文件丢进存档目录\\Seeleyuwo\\rez\\BGM\\（即 %APPDATA%\\Godot\\app_userdata\\植物大战僵尸杂交版\\Seeleyuwo\\rez\\BGM）。文件名就是曲名，可自建子文件夹分类，层级不限。\n2. 游戏能读 wav / ogg / mp3 和 16-bit 立体声的 flac，单个不超过 64MB。WMA、24-bit FLAC 这类读不了的格式，转成 ogg 或 mp3 就能用。\n3. 选项 → Mod 管理 → 音乐盒 → 配置，每个界面一个下拉，里面就是目录实际扫到的文件。不想换的那组，关掉第一项的开关就回到游戏原声。\n4. 本地新放的歌要出现在下拉里，重新进一次 Mod 管理就行；播放本身不用重启。",
+  "dependencies": [],
+  "conflicts": [],
+  "provides": {},
+  "overrides": {},
+  "scripts": [
+    "Scripts/MusicBoxEntry.cs"
+  ],
+  "settings": [
+    {
+      "key": "enableMenuGroup",
+      "type": "bool",
+      "label": "替换主菜单/商店音乐",
+      "group": "主菜单与弹窗",
+      "description": "关闭后主菜单与商店都用游戏原声，下面两项不用逐项改回原版。",
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": true
+    },
+    {
+      "key": "menuMainMenu",
+      "type": "enum",
+      "label": "主菜单音乐",
+      "group": "主菜单与弹窗",
+      "description": "下拉列出 BGM 目录实际扫到的文件名，选「原版（不替换）」即不改。",
+      "visibleWhen": {
+        "key": "enableMenuGroup",
+        "op": "eq",
+        "value": true
+      },
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": "track1",
+      "options": [
+        {
+          "value": "off",
+          "label": "原版（不替换）"
+        },
+        {
+          "value": "track1",
+          "label": "track1"
+        },
+        {
+          "value": "track2",
+          "label": "track2"
+        },
+        {
+          "value": "track3",
+          "label": "track3"
+        },
+        {
+          "value": "track4",
+          "label": "track4"
+        }
+      ]
+    },
+    {
+      "key": "menuShop",
+      "type": "enum",
+      "label": "商店界面音乐",
+      "group": "主菜单与弹窗",
+      "description": "商店是覆盖在主菜单上的弹窗：打开时切到所选曲目，关闭后还原原版。下拉列出 BGM 目录实际扫到的文件名，选「原版（不替换）」即不改。",
+      "visibleWhen": {
+        "key": "enableMenuGroup",
+        "op": "eq",
+        "value": true
+      },
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": "track4",
+      "options": [
+        {
+          "value": "off",
+          "label": "原版（不替换）"
+        },
+        {
+          "value": "track1",
+          "label": "track1"
+        },
+        {
+          "value": "track2",
+          "label": "track2"
+        },
+        {
+          "value": "track3",
+          "label": "track3"
+        },
+        {
+          "value": "track4",
+          "label": "track4"
+        }
+      ]
+    },
+    {
+      "key": "enableLevelGroup",
+      "type": "bool",
+      "label": "替换选关/图鉴音乐",
+      "group": "关卡界面",
+      "description": "关闭后选关与图鉴都用游戏原声。",
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": true
+    },
+    {
+      "key": "menuLevelChoose",
+      "type": "enum",
+      "label": "选关界面音乐",
+      "group": "关卡界面",
+      "description": "进入选关场景时临时替换，离开后还原原版。下拉列出 BGM 目录实际扫到的文件名，选「原版（不替换）」即不改。",
+      "visibleWhen": {
+        "key": "enableLevelGroup",
+        "op": "eq",
+        "value": true
+      },
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": "track2",
+      "options": [
+        {
+          "value": "off",
+          "label": "原版（不替换）"
+        },
+        {
+          "value": "track1",
+          "label": "track1"
+        },
+        {
+          "value": "track2",
+          "label": "track2"
+        },
+        {
+          "value": "track3",
+          "label": "track3"
+        },
+        {
+          "value": "track4",
+          "label": "track4"
+        }
+      ]
+    },
+    {
+      "key": "menuAlmanac",
+      "type": "enum",
+      "label": "图鉴界面音乐",
+      "group": "关卡界面",
+      "description": "图鉴界面使用的背景音乐。下拉列出 BGM 目录实际扫到的文件名，选「原版（不替换）」即不改。",
+      "visibleWhen": {
+        "key": "enableLevelGroup",
+        "op": "eq",
+        "value": true
+      },
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": "track3",
+      "options": [
+        {
+          "value": "off",
+          "label": "原版（不替换）"
+        },
+        {
+          "value": "track1",
+          "label": "track1"
+        },
+        {
+          "value": "track2",
+          "label": "track2"
+        },
+        {
+          "value": "track3",
+          "label": "track3"
+        },
+        {
+          "value": "track4",
+          "label": "track4"
+        }
+      ]
+    },
+    {
+      "key": "enableUpdateCheck",
+      "type": "bool",
+      "label": "启动时检查更新",
+      "group": "关于",
+      "description": "启动游戏后自动联网查一次新版本，有新版会列进游戏的统一更新提醒；检查失败不作提示。不想让模组联网就关掉它（下次启动生效）。",
+      "applyMode": "immediate",
+      "affectsGameplay": false,
+      "default": true
+    },
+    {
+      "key": "aboutChangelog",
+      "type": "text",
+      "label": "更新内容",
+      "group": "关于",
+      "content": "v1.2.2 · 2026-10-05\n调整：模组更名为「音乐盒」\n适配：适配游戏 0.30 版本。\n提醒：这是一份全新的模组。之前装过旧名的话，先在 Mod 管理里停用或删掉旧的那份，只留这一个，不然两份会抢同一批音乐。\n提醒：换编号后面板选曲回到默认，进配置重新选一次你在听的歌就行；音乐目录里的文件不用动。\n\nv1.2.1 · 2026-10-05\n新增：启动游戏自动检查一次新版本，有新版会弹窗提醒，点前往更新直接打开下载页。\n新增：关于页加了「启动时检查更新」开关，不想让模组联网就关掉。\n修复：切界面时音乐不再从头重播，会接着刚才的位置继续。\n修复：放了歌却没换曲的情况现在会说清原因，读不了的格式不再列进选曲，日志会点名是哪首歌、该转成什么格式。\n修复：文件名后缀和实际格式不一致的歌也能正常播放。\n提醒：游戏能读 wav / ogg / mp3 和 16-bit 立体声 FLAC，单个不超过 64MB；24-bit FLAC、WMA 这类读不了，转成 ogg 或 mp3 最省事。\n提醒：检查没成功不会有任何提示，也不影响游戏。\n\nv1.2.0 · 2026-10-05\n新增：三步用法改在 Mod 管理的「怎么玩」里直接显示，选中模组就能看到。\n调整：换曲后的重启提示不再点名具体按钮，新旧游戏都不会指错路。\n\nv1.1.0 · 2026-10-04\n新增：在 Mod 配置里直接选曲，主菜单、商店、选关、图鉴各一个下拉，里面就是目录里的真实文件名。\n新增：配置面板分三页，每组第一项是总开关，关掉整组回到游戏原声。\n新增：关于页显示更新内容和作者许可。\n调整：音乐目录统一到 存档目录\\Seeleyuwo\\rez\\BGM\\，子文件夹也认，可以自己分类；目录里每个音频文件都是一首可选曲目，曲名就是文件名。\n调整：包里不再带音频，从 25MB 缩到几十 KB；更早那版专用的音乐目录停用。\n调整：改用游戏原生 Mod 配置，不再依赖第三方设置模组。\n优化：丢文件进来当场就能播；面板保存后当场换曲，改回原版也会还原游戏原声。\n提醒：新歌要重启一次游戏才会出现在下拉里。\n\nv1.0.0 · 2026-09-28\n首个正式版：主菜单、选关、图鉴、商店的界面音乐可换。\n选关界面进场临时替换、离场自动还原；修正商店弹窗的音乐。"
+    },
+    {
+      "key": "aboutAuthor",
+      "type": "text",
+      "label": "作者与许可",
+      "group": "关于",
+      "content": "音乐盒 v1.2.2 · 作者：百合小希。\n本模组为玩家自制 Mod，与《植物大战僵尸杂交版》官方无隶属关系。模组代码按 MIT 许可开放，可自由参考、修改、再分发；玩家自己放进去的音乐，版权归其原作者所有，仅供个人学习、研究使用，请勿二次分发音频或用于商业用途。\n包里不带任何音频（几十 KB），音乐都是玩家自己放进存档目录 Seeleyuwo\\rez\\BGM 的。"
+    }
+  ],
+  "runtimeAssembly": "Runtime/ModAssembly.dll",
+  "runtimeEntryType": "MusicBoxMod.MusicBoxEntry",
+  "runtimeApiVersion": 3,
+  "runtimeAssemblyPolicy": "required",
+  "blueprints": [],
+  "translations": [],
+  "resources": [
+    "config/changelog.txt"
+  ]
+}

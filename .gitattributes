@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.dll binary
+*.pmod binary
+*.png binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.flac binary

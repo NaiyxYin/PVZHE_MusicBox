@@ -1,0 +1,25 @@
+# 构建产物与本地缓存
+.build/bin/
+.build/obj/
+.build/**/bin/
+.build/**/obj/
+.build/TEMP/
+.build/tmp/
+.build/.dotnet/
+.build/.nuget/
+
+# 打包出来的模组包（用 Releases / 附件分发，不进仓库）
+dist/
+
+# 本地音频素材：版权不在本仓库，包内也不带音频
+Assets/
+
+# 编辑器与系统杂物
+.vs/
+.idea/
+*.user
+Thumbs.db
+Desktop.ini
+
+# 本地 Mod 编辑器工程文件（含本机绝对路径）
+*.pvzmodeproject
