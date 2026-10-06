@@ -60,7 +60,7 @@ namespace MusicBoxMod
         // 请求走宿主自己的 NativeHttpRequest 节点：游戏导出裁剪了 BCL，泛型 HttpClient 的
         // 无参构造在运行时是「Method not found」，只有宿主自己用过的 API 才活得下来。
         private const string UpdateCheckSetting = "enableUpdateCheck";
-        private const string UpdateFeedUrl = "https://raw.githubusercontent.com/OWNER/MusicBox/main/update.txt";
+        private const string UpdateFeedUrl = "https://raw.githubusercontent.com/NaiyxYin/PVZHE_MusicBox/main/update.txt";
 
         // 宿主 XWModExternalMediaLoader 认的音频扩展名（单文件上限 64MB）。
         private static readonly string[] AudioExtensions = { ".wav", ".ogg", ".mp3", ".flac" };
