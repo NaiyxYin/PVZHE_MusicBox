@@ -3,6 +3,7 @@ import json, re, os, zipfile, hashlib, pathlib, sys
 flags = [a for a in sys.argv[1:] if a.startswith("--")]
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 no_install = "--no-install" in flags
+no_bump = "--no-bump" in flags
 
 proj = pathlib.Path(args[0]) if args else pathlib.Path(__file__).resolve().parents[1]
 man_path = proj / "mod.json"
@@ -10,7 +11,8 @@ man = json.loads(man_path.read_text(encoding="utf-8"))
 man["runtimeAssembly"] = "Runtime/ModAssembly.dll"
 
 
-# 版本号 4 段：前三段是模组版本（只在用户要求时改），第四段是构建号，每次打包 +1。
+# 版本号 4 段：前三段是模组版本（只在用户要求时改），第四段是构建号，真正出包每次 +1；
+# 验证流程（克隆试跑、闸门自检）用 --no-bump，不占构建号也不写 mod.json。
 def next_build(version):
     parts = str(version or "1.0.0").strip().split(".")
     while len(parts) < 3:
@@ -22,10 +24,13 @@ def next_build(version):
 
 
 previous_version = str(man.get("version") or "")
-man["version"] = next_build(previous_version)
-if man["version"] != previous_version:
-    man_path.write_text(json.dumps(man, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print("VERSION:", previous_version, "->", man["version"])
+if no_bump:
+    print("VERSION:", previous_version, "(--no-bump：不占构建号，mod.json 原样不动)")
+else:
+    man["version"] = next_build(previous_version)
+    if man["version"] != previous_version:
+        man_path.write_text(json.dumps(man, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print("VERSION:", previous_version, "->", man["version"])
 
 mid = man["id"]
 norm = "".join(c if (c.isalnum() or c in "._-") else "_" for c in mid.strip()).strip(". ") or "mod"

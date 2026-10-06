@@ -37,7 +37,7 @@ namespace MusicBoxMod
     // 每秒的核对定时器会比对目录指纹，变了就整轮重载。
     // 所有作为“音乐”加载的音频都会强制循环播放。
     // 面板保存后 settings.Changed 会触发整轮重载并刷新已缓存的播放器，主菜单等处即时切歌。
-    // 每次启动另联网查一次版本（「关于」页 enableUpdateCheck 可关）：查 update.naiyx.top 的 DNS TXT 记录，
+    // 每次启动另联网查一次版本（「关于」页 enableUpdateCheck 可关）：拉仓库根目录的 update.txt，
     // 有新版一律上报游戏的统一更新提醒（多 Mod 汇总成一份提醒；反射探测、编译期不依赖该 API；
     // 游戏版本较旧没有这套通道时只在日志里说明，不自带弹窗）。任何失败都只在日志里说明，不打扰玩家。
     public sealed class MusicBoxEntry : IXWModRuntimeEntry
@@ -54,12 +54,13 @@ namespace MusicBoxMod
         // 「关于」页里由包外内容撑起来的那一项：正文取 changelog 的最新版本块。
         private const string ChangelogSetting = "aboutChangelog";
 
-        // 启动更新检测：面板总开关键 + DNS-over-HTTPS 查询地址。
-        // 更新源是 naiyx.top 的一条 TXT 记录（update.naiyx.top），内容格式：v=<最新版>|u=<下载页>。
+        // 启动更新检测：面板总开关键 + 更新源地址。
+        // 更新源就是本仓库根目录那份 update.txt，内容一行：v=<最新版>|u=<下载页>；
+        // 发新版时改那个文件提交即可，构建号不参与比较。
         // 请求走宿主自己的 NativeHttpRequest 节点：游戏导出裁剪了 BCL，泛型 HttpClient 的
         // 无参构造在运行时是「Method not found」，只有宿主自己用过的 API 才活得下来。
         private const string UpdateCheckSetting = "enableUpdateCheck";
-        private const string UpdateCheckDoHUrl = "https://dns.alidns.com/resolve?name=update.naiyx.top&type=TXT";
+        private const string UpdateFeedUrl = "https://raw.githubusercontent.com/OWNER/MusicBox/main/update.txt";
 
         // 宿主 XWModExternalMediaLoader 认的音频扩展名（单文件上限 64MB）。
         private static readonly string[] AudioExtensions = { ".wav", ".ogg", ".mp3", ".flac" };
@@ -1376,7 +1377,7 @@ namespace MusicBoxMod
 
         // ---------- 启动更新检测 ----------
 
-        // 每次启动只查一次：向 DoH 服务查询 update.naiyx.top 的 TXT 记录（v=最新版|u=下载页），
+        // 每次启动只查一次：拉仓库根目录的 update.txt（v=最新版|u=下载页），
         // 与本机模组版本只比前 3 段（第 4 段是构建号，每次打包 +1，算进去就永远"有更新"）。
         // 任何失败都只写一条日志、绝不弹窗；发现新版一律上报游戏的统一更新提醒，
         // 老游戏没有这套通道时也只记日志说明，不自带弹窗。
@@ -1403,7 +1404,7 @@ namespace MusicBoxMod
             _updateRequest = new NativeHttpRequest();
             _updateRequest.RequestCompleted += OnUpdateRequestCompleted;
             tree.Root.AddChild(_updateRequest);
-            _updateRequest.Request(UpdateCheckDoHUrl, Array.Empty<string>());
+            _updateRequest.Request(UpdateFeedUrl, Array.Empty<string>());
         }
 
         // 回调已在主线程；任何意外（例如再撞上裁剪问题）都降级为一条日志，不惊扰玩家。
@@ -1455,7 +1456,7 @@ namespace MusicBoxMod
                 timer.Timeout += () =>
                 {
                     if (_updateRequest != null)
-                        _updateRequest.Request(UpdateCheckDoHUrl, Array.Empty<string>());
+                        _updateRequest.Request(UpdateFeedUrl, Array.Empty<string>());
                 };
                 return;
             }
@@ -1473,35 +1474,26 @@ namespace MusicBoxMod
             _updateRequest = null;
         }
 
-        // DoH 响应：Status=0 且 Answer 里有 type=16（TXT）的记录。TXT 原文带一层引号，
-        // 过长时会被拆成相邻多段返回，这里去引号直接拼接。
-        private static bool TryReadUpdateRecord(string json, out string latest, out string url, out string problem)
+        // 更新源就是仓库根目录那份 update.txt：取第一条非空非注释的行，内容形如 v=<最新版>|u=<下载页>。
+        private static bool TryReadUpdateRecord(string body, out string latest, out string url, out string problem)
         {
             latest = "";
             url = "";
-            using var document = JsonDocument.Parse(json);
-            JsonElement root = document.RootElement;
-            if (root.TryGetProperty("Status", out JsonElement status)
-                && status.ValueKind == JsonValueKind.Number && status.GetInt32() != 0)
+            string record = "";
+            foreach (string line in (body ?? "").Replace("\r", "\n").Split('\n'))
             {
-                problem = $"DNS 返回状态 {status.GetInt32()}（记录可能不存在）";
+                string trimmed = line.Trim();
+                if (trimmed.Length == 0 || trimmed.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+                record = trimmed;
+                break;
+            }
+            if (record.Length == 0)
+            {
+                problem = "更新源里没有内容（文件为空或只有注释）";
                 return false;
             }
-            if (!root.TryGetProperty("Answer", out JsonElement answers)
-                || answers.ValueKind != JsonValueKind.Array)
-            {
-                problem = "响应里没有 Answer 记录";
-                return false;
-            }
-            var text = new StringBuilder();
-            foreach (JsonElement answer in answers.EnumerateArray())
-            {
-                if (answer.TryGetProperty("type", out JsonElement type) && type.ValueKind == JsonValueKind.Number
-                    && type.GetInt32() == 16
-                    && answer.TryGetProperty("data", out JsonElement data) && data.ValueKind == JsonValueKind.String)
-                    text.Append(data.GetString().Replace("\"", ""));
-            }
-            foreach (string token in text.ToString().Split('|'))
+            foreach (string token in record.Split('|'))
             {
                 string piece = token.Trim();
                 if (piece.StartsWith("v=", StringComparison.Ordinal))
@@ -1511,19 +1503,19 @@ namespace MusicBoxMod
             }
             if (string.IsNullOrEmpty(latest))
             {
-                problem = "TXT 内容缺少 v= 版本号：" + text;
+                problem = "更新源缺少 v= 版本号：" + record;
                 return false;
             }
             if (string.IsNullOrEmpty(url))
             {
-                problem = "TXT 内容缺少 u= 下载地址：" + text;
+                problem = "更新源缺少 u= 下载地址：" + record;
                 return false;
             }
             // 下载页只会用于打开浏览器（宿主通道也按 http/https 验收）：本地路径、其他协议一律不认。
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
                 && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                problem = "TXT 里的 u= 不是网页链接：" + url;
+                problem = "更新源里的 u= 不是网页链接：" + url;
                 return false;
             }
             problem = null;

@@ -41,6 +41,29 @@ out.append("PI_HAS_FORMAT_HINT: %s" % ("16-bit 立体声" in man.get("playInstru
 
 out.append("KEYS: %s" % ",".join(s["key"] for s in man["settings"]))
 out.append("SEED_MATCHES_BODY: %s" % (seed == body))
+
+# 更新源：模组每次启动拉仓库根目录的 update.txt。发布前这两条必须都 True——
+# 占位没填就等于线上永远「已最新」，落后于包体版本就是给全部玩家弹一个下不到的新版。
+feed_text = (proj / "update.txt").read_text(encoding="utf-8")
+feed_url = ""
+for src_line in (proj / "Scripts" / "MusicBoxEntry.cs").read_text(encoding="utf-8").splitlines():
+    if "raw.githubusercontent.com" in src_line and '";' in src_line:
+        feed_url = src_line.split('"')[1]
+        break
+feed_version = ""
+for feed_line in feed_text.splitlines():
+    feed_line = feed_line.strip()
+    if feed_line.startswith("v="):
+        feed_version = feed_line.split("|")[0][2:].strip()
+        break
+mod_v3 = tuple(int(x) for x in man["version"].strip().split(".")[:3])
+feed_v3 = tuple(int(x) for x in feed_version.split(".")[:3] + ["0", "0"]) if feed_version else ()
+out.append("FEED_URL: %s" % feed_url)
+out.append("FEED_URL_NO_PLACEHOLDER: %s" % (bool(feed_url) and not any(
+    token in feed_url for token in ("OWNER", "REPO", "<", " "))))
+out.append("FEED_VERSION: %s  (mod %s)" % (feed_version, ".".join(map(str, mod_v3))))
+out.append("FEED_NOT_BEHIND_PACKAGE: %s" % (bool(feed_v3) and feed_v3 >= mod_v3))
+
 out.append("PLAY_INSTRUCTIONS_LEN: %d" % len(man.get("playInstructions", "")))
 out.append("RESUME_LINE_IN_121_BLOCK: %s" % ("修复：从载入界面" in block_121))
 out.append("SNIFF_LINE_IN_121_BLOCK: %s" % ("文件名和歌曲实际格式" in block_121))

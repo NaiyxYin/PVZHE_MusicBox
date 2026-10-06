@@ -30,7 +30,9 @@
 mod.json                  模组清单：settings 面板声明、playInstructions、资源与运行时入口
 Scripts/MusicBoxEntry.cs  唯一的运行时代码（约 1600 行，注释写在关键取舍上）
 config/changelog.txt      更新记录的唯一来源，模组会把它回写进「关于」页
+update.txt                更新源：模组每次启动拉这个文件比对版本（不进 .pmod 包）
 LICENSE                   MIT 许可全文
+build.py                  构建一条龙：编译 → 校验 → 打包 → 核对（见「构建与打包」）
 .build/                   构建 / 校验 / 打包工具（见「构建与打包」）
 ```
 
@@ -40,17 +42,37 @@ LICENSE                   MIT 许可全文
 ## 构建与打包
 
 需要 **.NET SDK 9 或更高**：三个工程的目标框架都是 `net9.0`，本机 9.0.315 和 10.0.401 都实测通过（SDK 8 编不了这个目标框架）。
+需要 **Python 3**（跑构建脚本，只用标准库，不需要 `pip install` 任何东西）。
 三个 csproj 都不引第三方 NuGet 包，但首次构建仍要联网从 nuget.org 取 `net9.0` 的引用包，之后可以离线重复构建。
 
 外加**你自己准备的宿主程序集**：游戏发行时附带的两份托管 DLL（游戏本体的编译产物，加上 Godot .NET 的脚本程序集）。
-本仓库不带它们、不点名具体文件名，也不记录任何作者本机的路径——它们是游戏的产物，随游戏分发，版权不在本仓库。
+本仓库不带它们，也不记录任何作者本机的路径 —— 它们是游戏的产物，随游戏分发，版权不在本仓库。
 
 模组是托管 C# 插件，编译期必须拿到含宿主类型定义的程序集才能通过编译；这份引用只用于编译，
 不会被打进 `.pmod`，运行时直接用游戏里已经加载的那一份。第三方 mod 也都是这个形状：解包后只有
 清单和一份托管 DLL，DLL 引用的同样是这两份宿主程序集。
 
-`PVZHostDir` 有两种指法，任选其一：命令行加 `-p:PVZHostDir=<目录>`，或导出环境变量 `PVZHOSTDIR=<目录>`（三个离线工具都读它）。
-没指定、或目录里凑不齐那两份宿主程序集时，构建会直接停下并告诉你缺什么；从哪凑齐由你自己准备，本仓库不带路。
+怎么把这个目录告诉构建，有三种写法，任选其一：环境变量 `PVZHOSTDIR=<目录>`（推荐，设一次长期有效，`build.py` 和三个离线工具都读它）、
+`python build.py --host-dir <目录>`、或给 `dotnet build` 加 `-p:PVZHostDir=<目录>`。
+它要指向的是**那两份宿主程序集所在的那个文件夹**：装好游戏后一般在 `<游戏安装目录>\data_PlantsVsZombies_*\` 里，
+`PlantsVsZombies.dll` 与 `GodotSharp.dll` 同时出现在某个目录下，指的就是那个目录；文件夹名里的平台和架构部分会随游戏版本变，
+拿不准就在安装目录里搜这两个文件名。没指定、或那个目录凑不齐时，构建会带着「缺什么」直接停下，不会去猜路径。
+
+一条龙是仓库根目录的 `build.py`，它按顺序跑完编译 → 校验 → 打包 → 核对包内容，任何一步失败就停在那里：
+
+```bash
+python build.py --host-dir "<含那两份宿主程序集的目录>"   # 已设好 PVZHOSTDIR 的话不用这个参数；相对路径按仓库根目录算
+python build.py --install          # 出包并装进存档 Mods\（默认不装，游戏读到的还是旧包）
+python build.py --probe "<BGM 目录>"   # 额外跑一遍音频预检，可重复指定多个目录
+python build.py --check            # 只是验证流程能跑通：闸门全过，但不占构建号
+```
+
+构建号（版本号第四段）是**每次真正出包 +1**，所以自检、克隆试跑这类「只证明流程能跑」的场合用 `--check`：
+它照样跑完编译、校验、打包、核对，只是打包那步给 `.build/package.py` 传 `--no-bump`，
+`mod.json` 一个字节都不改，`dist/` 里留下的是试产品，别拿去发布。
+
+默认只在 `dist/` 里出包，不碰存档目录；构建缓存（TEMP / NuGet / dotnet CLI）也都收进 `.build/` 里，不污染系统临时目录。
+想只跑其中一步，或者想知道每一步分别在干什么，照下面抄（都在仓库根目录执行）：
 
 ```bash
 export TEMP="$PWD/.build/TEMP" TMP="$PWD/.build/TEMP" TMPDIR="$PWD/.build/TEMP" \
@@ -66,11 +88,23 @@ dotnet run --project .build/validate -c Release -- mod.json
 # 3. 离线跑一遍音频预检，确认音乐目录里每首歌游戏能不能读（要给出目录）
 dotnet run --project .build/probe -c Release -- "<BGM 目录>" [额外目录...]
 
-# 4. 打包（默认还会装进存档 Mods\；只想出包就加 --no-install）
+# 4. 打包（默认构建号 +1 并装进存档 Mods\；只想出包加 --no-install，自检不占构建号加 --no-bump）
 python .build/package.py "$PWD" --no-install
+
+# 5. 核对包内容
+python .build/verify.py
 ```
 
-打包后再跑 `python .build/verify.py`，它把包内容当成一份清单核对（id/名称/设置项/更新记录一致性、
+PowerShell 下这些环境变量这样设（上面那段是 bash 写法，`build.py` 本身两个 shell 都能跑）：
+
+```powershell
+$env:TEMP = $env:TMP = $env:TMPDIR = "$PWD\.build\TEMP"
+$env:DOTNET_CLI_HOME = "$PWD\.build\tmp"
+$env:NUGET_PACKAGES = "$PWD\.build\tmp\nuget"
+$env:PVZHOSTDIR = "<含那两份宿主程序集的目录>"
+```
+
+`python .build/verify.py` 把包内容当成一份清单核对（id/名称/设置项/更新记录一致性、
 关键实现是否真在 DLL 里），结果写到 `.build/TEMP/verify.txt`。
 `.build/package.py` 的安装步骤按 `%APPDATA%\Godot\app_userdata\植物大战僵尸杂交版\Mods\` 定位存档目录，
 那是游戏自己的用户数据目录；不是这台机器的路径，换机不用改，只想出包就一直带 `--no-install`。
@@ -82,6 +116,20 @@ python .build/package.py "$PWD" --no-install
 - 从载入界面进主菜单（选关、图鉴同理）时，游戏会把同一首音乐从头重放一遍，这个行为模组拦不住，只能在下一帧把播放位置按回刚才的地方，实现续播。
 - 游戏导出时裁剪了部分 .NET 运行库：标准 HTTP 客户端不能直接用，联网检查更新走的是宿主提供的请求通道；个别字符串拆分写法会绑到被裁剪的重载上，低层的字节解析也都是手写避开的。
 - 更新检测已同步游戏官方的统一更新接口（0.30 起宿主提供）：发现新版由游戏汇总提醒，本模组不自建弹窗。
+
+## 更新源
+
+每次启动拉一次仓库根目录的 `update.txt`（就是仓库里那个文件本身，不在 `.pmod` 包内），取第一条非注释行，格式 `v=<最新模组版本>|u=<下载页>`：
+
+- `v=` **只写三段**（`1.2.3`）。第 4 段是构建号，每次打包 +1，算进去就永远提示「有更新」；比较也只比前三段。
+- `u=` 必须是 `http(s)` 链接，本地路径和其他协议会被认成非法记录并写日志。
+- 发现新版就交给宿主的统一更新提醒（面板「前往更新」用的就是它），模组自己不弹窗。
+- 任何失败（连不上、404、内容不合格式）都**只写一条日志，绝不打扰玩家**，失败会隔 3 秒静默重试一轮。
+- 所以发新版的收尾动作是：**改 `update.txt` 的 `v=` 并提交**，否则「前往更新」永远不动。
+
+地址写在 `Scripts/MusicBoxEntry.cs` 的 `UpdateFeedUrl` 里，仓库搬家 / 改名时要一起改。
+`python .build/verify.py` 会核对三件事：URL 里没有占位（例如还没填的 `OWNER`）、`update.txt` 里有 `v=`、且 `v=` 不低于包体版本。
+仓库还是 private 的时候，raw 地址返回 404，检查会静默失败（等于没有提醒），转 public 之后自动恢复。
 
 实机日志在 `存档目录\logs\godot.log`，正常启动会有一行 `[Mod:MusicBox] 运行入口已加载 v<版本>`；没有这行说明跑的还是旧包。
 
