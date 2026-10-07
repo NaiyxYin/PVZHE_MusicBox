@@ -79,6 +79,14 @@ out.append("FEED_IS_LATEST_RELEASE_API: %s" % feed_url.endswith("/releases/lates
 out.append("FEED_SENDS_USER_AGENT: %s" % ('"User-Agent: ' in entry_src))
 out.append("FEED_NO_LEGACY_FILE: %s" % (not (proj / "update.txt").exists()))
 
+# 「关于」页那个仓库链接必须和更新源指向同一个仓库：仓库改名/搬家时只改了一处的话，
+# 玩家在游戏里点开的就是 404 页面，而更新提醒看着一切正常。两边都从原文里抓，不做拼接。
+repo_link = re.search(r"\[url=(https://github\.com/[0-9A-Za-z._/-]+)\]", about_line)
+feed_slug = re.search(r"https://api\.github\.com/repos/([0-9A-Za-z._-]+/[0-9A-Za-z._-]+)/", feed_url)
+out.append("ABOUT_REPO_LINK: %s" % (repo_link.group(1) if repo_link else "缺失"))
+out.append("ABOUT_REPO_MATCHES_FEED: %s" % bool(repo_link and feed_slug
+    and repo_link.group(1).rstrip("/").endswith("/" + feed_slug.group(1))))
+
 out.append("PLAY_INSTRUCTIONS_LEN: %d" % len(man.get("playInstructions", "")))
 out.append("RESUME_LINE_IN_121_BLOCK: %s" % ("修复：从载入界面" in block_121))
 out.append("SNIFF_LINE_IN_121_BLOCK: %s" % ("文件名和歌曲实际格式" in block_121))
