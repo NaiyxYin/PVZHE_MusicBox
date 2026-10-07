@@ -6,7 +6,6 @@
     python build.py --install            出包并装进存档 Mods\
     python build.py --host-dir <目录>    指定含那两份宿主程序集的目录（否则读环境变量 PVZHOSTDIR）
     python build.py --probe <BGM目录>    额外跑一遍音频预检（可选）
-    python build.py --check              验证流程：编译/校验/打包/核对照跑，但不占构建号
 
 只依赖标准库和 .NET SDK，不需要 pip install 任何东西。
 """
@@ -40,8 +39,6 @@ def main():
     parser.add_argument("--install", action="store_true", help="打包后装进存档目录的 Mods\\（默认不装）")
     parser.add_argument("--host-dir", help="含那两份宿主程序集的目录；不给就用环境变量 PVZHOSTDIR")
     parser.add_argument("--probe", action="append", default=[], help="额外做一次音频预检的目录，可重复")
-    parser.add_argument("--check", action="store_true",
-                        help="验证流程专用：完整跑一遍闸门，但打包不占构建号（mod.json 一个字节都不改）")
     args = parser.parse_args()
 
     host_dir = args.host_dir or os.environ.get("PVZHOSTDIR") or ""
@@ -91,9 +88,7 @@ def main():
     package = [sys.executable, str(BUILD / "package.py"), str(PROJ)]
     if not args.install:
         package.append("--no-install")
-    if args.check:
-        package.append("--no-bump")
-    run(package, "打包" + ("（验证：不占构建号）" if args.check else ("并装机" if args.install else "（不装机）")))
+    run(package, "打包" + ("并装机" if args.install else "（不装机）"))
 
     run([sys.executable, str(BUILD / "verify.py")], "核对包内容")
     report = temp / "verify.txt"
@@ -101,8 +96,8 @@ def main():
         for line in report.read_text(encoding="utf-8").splitlines():
             print("    " + line)
     print("\n[build] 全部通过。包在 %s" % (PROJ / "dist"))
-    if args.check:
-        print("[build] 这是 --check 验证跑：mod.json 的构建号没动，dist/ 里这个包是试产品，别拿去发布。")
+    if not args.install:
+        print("[build] 全程没改过仓库里的任何文件，这一跑本身就能当流程自检用；要装机再加 --install。")
 
 
 if __name__ == "__main__":

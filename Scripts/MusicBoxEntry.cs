@@ -20,12 +20,13 @@ namespace MusicBoxMod
     //   BGM 根目录 user://Seeleyuwo/rez/BGM/（可自由建子文件夹分类，递归扫描）：
     //     任意音频文件名都是一个可选曲目，值就是文件名（不含扩展名）；
     //     文件名正好是战斗 BGM 键（Grasswalk 等，见 BattleBgmKeys）时额外覆盖该键。
-    //     主菜单/商店/选关/图鉴四项在面板里是下拉：选项声明本来写死在 mod.json 里，
-    //     模组每次扫完目录会把自己安装包里的这四组 options 重写成实际读到的曲目
+    //     主菜单/商店/选关/图鉴四项在面板里是下拉：mod.json 里只声明「原版（不替换）」这一项
+    //     （宿主要求 enum 必须带非空 options），default 也是 off；
+    //     模组每次扫完目录把自己安装包里的这四组 options 写成实际读到的曲目
     //     （见 SyncPackageDeclarations），所以刚丢进来的文件要等下次重启才进下拉。
     // 「关于」页是两段原生只读展示项（type: "text"），顺序为更新内容 → 作者与许可；
     //   三步用法写在 mod.json 的 playInstructions，由宿主显示在「Mod 管理 → 怎么玩」；
-    //   「更新内容」的正文由模组从包内 config/changelog.txt 回写，更新记录只维护那一份。
+    //   「更新内容」的正文由模组从包内 changelog.txt 回写，更新记录只维护那一份。
     //   非音频扩展名的文件（如 .rez）一律不读。
     // 扫到的音频先按宿主的读取上限做一次「只看文件头」的预检（DescribeAudioRejection）：
     //   单文件 64MB；FLAC 还要求 8/16-bit、单声道或立体声、解码后不超过 128MB。
@@ -37,7 +38,8 @@ namespace MusicBoxMod
     // 每秒的核对定时器会比对目录指纹，变了就整轮重载。
     // 所有作为“音乐”加载的音频都会强制循环播放。
     // 面板保存后 settings.Changed 会触发整轮重载并刷新已缓存的播放器，主菜单等处即时切歌。
-    // 每次启动另联网查一次版本（「关于」页 enableUpdateCheck 可关）：拉仓库根目录的 update.txt，
+    // 每次启动另联网查一次版本（「关于」页 enableUpdateCheck 可关）：查本仓库最新的 GitHub Release，
+    // 版本号一律按严格 semver 比大小（预发布排在同号正式版之前，构建元数据不比）；
     // 有新版一律上报游戏的统一更新提醒（多 Mod 汇总成一份提醒；反射探测、编译期不依赖该 API；
     // 游戏版本较旧没有这套通道时只在日志里说明，不自带弹窗）。任何失败都只在日志里说明，不打扰玩家。
     public sealed class MusicBoxEntry : IXWModRuntimeEntry
@@ -50,17 +52,24 @@ namespace MusicBoxMod
         // 自己安装包的位置（SyncPackageDeclarations 要回写包内的声明）。
         private const string ModsVirtualPath = "user://Mods";
         private const string ManifestEntryName = "mod.json";
-        private const string ChangelogEntryName = "config/changelog.txt";
+        private const string ChangelogEntryName = "changelog.txt";
         // 「关于」页里由包外内容撑起来的那一项：正文取 changelog 的最新版本块。
         private const string ChangelogSetting = "aboutChangelog";
 
         // 启动更新检测：面板总开关键 + 更新源地址。
-        // 更新源就是本仓库根目录那份 update.txt，内容一行：v=<最新版>|u=<下载页>；
-        // 发新版时改那个文件提交即可，构建号不参与比较。
+        // 更新源就是本仓库的 GitHub Release：最新 Release 的 tag 名当最新模组版本、Release 页当下载页，
+        // 所以发新版只要建一个 Release。tag 一律写**严格 semver**（SemVer 2.0）：
+        //   正式版三段数字（1.2.2、1.3.0）；内测按预发布标记分三档（1.3.0-alpha.1 / -beta.1 / -rc.1）；
+        //   tag 只写版本本身：构建号已经取消，而 semver 的「+构建元数据」按规范本来就不参与比较。
+        // GitHub 上勾了 pre-release 的 Release 不会被 /releases/latest 返回（官方文档：最新的
+        // 非草稿、非预发布那条），所以内测包天然不会推给玩家，玩家只会收到正式版的提醒。
+        // 仓库里不再有 update.txt。
         // 请求走宿主自己的 NativeHttpRequest 节点：游戏导出裁剪了 BCL，泛型 HttpClient 的
         // 无参构造在运行时是「Method not found」，只有宿主自己用过的 API 才活得下来。
+        // GitHub API 不给 User-Agent 会直接 403，这个头是必带的。
         private const string UpdateCheckSetting = "enableUpdateCheck";
-        private const string UpdateFeedUrl = "https://raw.githubusercontent.com/NaiyxYin/PVZHE_MusicBox/main/update.txt";
+        private const string UpdateFeedUrl = "https://api.github.com/repos/NaiyxYin/PVZHE_MusicBox/releases/latest";
+        private static readonly string[] UpdateFeedHeaders = { "User-Agent: PVZHE_MusicBox" };
 
         // 宿主 XWModExternalMediaLoader 认的音频扩展名（单文件上限 64MB）。
         private static readonly string[] AudioExtensions = { ".wav", ".ogg", ".mp3", ".flac" };
@@ -1102,7 +1111,7 @@ namespace MusicBoxMod
         // FindPlayerSettingsPackage → ScanMods 重新解析包体（XWModToolsPanel.Settings.cs:48-54），
         // 改内存里的清单宿主看不见。所以这里把两样东西写回自己安装包：
         //   ① 四个界面曲目的 options（目录里实际扫到的文件名）；
-        //   ② 「关于」页 aboutChangelog 的正文（包内 config/changelog.txt 的最新版本块，
+        //   ② 「关于」页 aboutChangelog 的正文（包内 changelog.txt 去掉标题行后的全部正文，
         //      这样更新记录只维护 changelog.txt 一处，展示项自动跟上）。
         // 代价：包体哈希变了，本局 Mod 管理会标成「正在使用旧版本，重启后更新」，点「重启并应用」即恢复。
         private void SyncPackageDeclarations(string reason)
@@ -1377,8 +1386,8 @@ namespace MusicBoxMod
 
         // ---------- 启动更新检测 ----------
 
-        // 每次启动只查一次：拉仓库根目录的 update.txt（v=最新版|u=下载页），
-        // 与本机模组版本只比前 3 段（第 4 段是构建号，每次打包 +1，算进去就永远"有更新"）。
+        // 每次启动只查一次：拉本仓库最新的 GitHub Release（tag 名当最新版、Release 页当下载页），
+        // 与本机模组的版本按严格 semver 相比；tag 只写版本本身，构建元数据按规范不参与比较。
         // 任何失败都只写一条日志、绝不弹窗；发现新版一律上报游戏的统一更新提醒，
         // 老游戏没有这套通道时也只记日志说明，不自带弹窗。
         private void StartUpdateCheck()
@@ -1404,7 +1413,7 @@ namespace MusicBoxMod
             _updateRequest = new NativeHttpRequest();
             _updateRequest.RequestCompleted += OnUpdateRequestCompleted;
             tree.Root.AddChild(_updateRequest);
-            _updateRequest.Request(UpdateFeedUrl, Array.Empty<string>());
+            _updateRequest.Request(UpdateFeedUrl, UpdateFeedHeaders);
         }
 
         // 回调已在主线程；任何意外（例如再撞上裁剪问题）都降级为一条日志，不惊扰玩家。
@@ -1428,7 +1437,7 @@ namespace MusicBoxMod
                 return;
             string problem = null;
             if (resultCode == (long)NativeHttpRequest.Result.Success && responseCode == 200
-                && TryReadUpdateRecord(Encoding.UTF8.GetString(body ?? Array.Empty<byte>()),
+                && TryReadReleaseRecord(Encoding.UTF8.GetString(body ?? Array.Empty<byte>()),
                     out string latest, out string url, out problem))
             {
                 FinishUpdateRequest();
@@ -1446,9 +1455,11 @@ namespace MusicBoxMod
                 }
                 return;
             }
-            problem ??= resultCode == (long)NativeHttpRequest.Result.Success
-                ? $"HTTP 状态 {responseCode}"
-                : $"请求失败（结果 {resultCode}）";
+            problem ??= resultCode != (long)NativeHttpRequest.Result.Success
+                ? $"请求失败（结果 {resultCode}）"
+                : responseCode == 404
+                    ? "还没建正式版 Release（草稿和勾了预发布的都不算）"
+                    : $"HTTP 状态 {responseCode}";
             _updateFailures.Add(problem);
             if (_updateRetriesLeft-- > 0 && Engine.GetMainLoop() is SceneTree tree)
             {
@@ -1456,7 +1467,7 @@ namespace MusicBoxMod
                 timer.Timeout += () =>
                 {
                     if (_updateRequest != null)
-                        _updateRequest.Request(UpdateFeedUrl, Array.Empty<string>());
+                        _updateRequest.Request(UpdateFeedUrl, UpdateFeedHeaders);
                 };
                 return;
             }
@@ -1474,98 +1485,200 @@ namespace MusicBoxMod
             _updateRequest = null;
         }
 
-        // 更新源就是仓库根目录那份 update.txt：取第一条非空非注释的行，内容形如 v=<最新版>|u=<下载页>。
-        private static bool TryReadUpdateRecord(string body, out string latest, out string url, out string problem)
+        // 更新源就是仓库的 GitHub Release：/releases/latest 那段 JSON 里，tag_name 当最新版、html_url 当下载页。
+        // tag 前缀的 v 只当装饰去掉，其余部分必须是严格 semver，否则宁可当成「更新源没配好」记一条日志——
+        // 比不了大小就不要报版本号，免得把玩家引到一个说不清是新版还是旧版的 Release 上。
+        // 仓库还没有 Release 时这个地址是 404，由调用方记一条日志，跟连不上一样不打扰玩家。
+        private static bool TryReadReleaseRecord(string body, out string latest, out string url, out string problem)
         {
             latest = "";
             url = "";
-            string record = "";
-            foreach (string line in (body ?? "").Replace("\r", "\n").Split('\n'))
+            JsonNode record;
+            try
             {
-                string trimmed = line.Trim();
-                if (trimmed.Length == 0 || trimmed.StartsWith("#", StringComparison.Ordinal))
-                    continue;
-                record = trimmed;
-                break;
+                record = JsonNode.Parse(body ?? "");
             }
-            if (record.Length == 0)
+            catch (Exception exception)
             {
-                problem = "更新源里没有内容（文件为空或只有注释）";
+                problem = "更新源返回的不是 JSON：" + exception.GetBaseException().Message;
                 return false;
             }
-            foreach (string token in record.Split('|'))
+            if (record == null || record.GetValueKind() != JsonValueKind.Object)
             {
-                string piece = token.Trim();
-                if (piece.StartsWith("v=", StringComparison.Ordinal))
-                    latest = piece.Substring(2).Trim();
-                else if (piece.StartsWith("u=", StringComparison.Ordinal))
-                    url = piece.Substring(2).Trim();
+                problem = "更新源返回的不是一条 Release 记录";
+                return false;
             }
+            latest = (TextOf(record["tag_name"]) ?? "").Trim().TrimStart('v', 'V');
+            url = (TextOf(record["html_url"]) ?? "").Trim();
             if (string.IsNullOrEmpty(latest))
             {
-                problem = "更新源缺少 v= 版本号：" + record;
+                problem = "最新的 Release 没有 tag_name（建 Release 时要把版本号打成 tag）";
+                return false;
+            }
+            if (!IsStrictSemVer(latest))
+            {
+                problem = "最新的 Release 的 tag 不是严格 semver（正式版写 1.2.3，内测写 1.2.3-beta.1）：" + latest;
                 return false;
             }
             if (string.IsNullOrEmpty(url))
             {
-                problem = "更新源缺少 u= 下载地址：" + record;
+                problem = "最新的 Release 没有 html_url";
                 return false;
             }
             // 下载页只会用于打开浏览器（宿主通道也按 http/https 验收）：本地路径、其他协议一律不认。
             if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
                 && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                problem = "更新源里的 u= 不是网页链接：" + url;
+                problem = "Release 页地址不是网页链接：" + url;
                 return false;
             }
             problem = null;
             return true;
         }
 
-        // 只比前 3 段：构建号 B 不参与，服务器上的 v= 也只写到模组版本粒度。
+        // 版本比较照严格 semver（SemVer 2.0）：主.次.补丁逐段比数字，「-预发布」排在同版本号的正式版之前
+        // （1.3.0-alpha.1 < 1.3.0-beta.2 < 1.3.0-beta.10 < 1.3.0-rc.1 < 1.3.0），
+        // 「+构建元数据」按规范整个丢掉不比——所以同一个版的第 1 次和第 5 次构建都不会互相提示有更新。
         private static int CompareVersions(string left, string right)
         {
-            int[] a = ParseVersionParts(left);
-            int[] b = ParseVersionParts(right);
-            for (int index = 0; index < 3; index++)
+            ParseSemVer(left, out int[] a, out string[] aPre);
+            ParseSemVer(right, out int[] b, out string[] bPre);
+            // 缺的那段按 0 补：tag 写 1.2 与本机 1.2.0 视为同一版；
+            // 换成 semver 之前发出去的四位老包（1.2.2.6）也照样读，多出来那段留在数字段里按位置比。
+            for (int index = 0; index < Math.Max(a.Length, b.Length); index++)
             {
                 int x = index < a.Length ? a[index] : 0;
                 int y = index < b.Length ? b[index] : 0;
                 if (x != y)
                     return x.CompareTo(y);
             }
-            return 0;
+            return ComparePrerelease(aPre, bPre);
         }
 
-        // 逐字符扫描切段，不用任何 Split 重载：三字符的 Split 会被编译器绑到
-        // String.Split(ReadOnlySpan<char>)，而那个重载在裁剪后的游戏运行时里不存在。
-        private static int[] ParseVersionParts(string version)
+        // 拆一个版本号：'+' 之后整段丢弃，第一个 '-' 之后是预发布标记，剩下的是点分的数字段。
+        // 逐字符扫描而不是用 Split 重载：三字符的 Split 会被编译器绑到 String.Split(ReadOnlySpan<char>)，
+        // 而那个重载在裁剪后的游戏运行时里不存在。
+        private static void ParseSemVer(string version, out int[] numeric, out string[] prerelease)
         {
             string text = (version ?? "").Trim().TrimStart('v', 'V');
-            var parts = new List<int>();
-            int start = 0;
-            while (start <= text.Length)
+            int plus = text.IndexOf('+');
+            if (plus >= 0)
+                text = text.Substring(0, plus);
+            int hyphen = text.IndexOf('-');
+            string labels = hyphen < 0 ? "" : text.Substring(hyphen + 1);
+            if (hyphen >= 0)
+                text = text.Substring(0, hyphen);
+
+            var numbers = new List<int>();
+            foreach (string token in CutAtDots(text))
             {
-                int end = start;
-                while (end < text.Length && text[end] != '.' && text[end] != '-' && text[end] != '+')
-                    end++;
-                int value = 0;
-                bool hasDigit = false;
-                for (int index = start; index < end; index++)
-                {
-                    if (!char.IsDigit(text[index]))
-                        break;
-                    hasDigit = true;
-                    value = value * 10 + (text[index] - '0');
-                }
-                if (!hasDigit)
+                if (!TryReadNumber(token, out int value))
                     break;
-                parts.Add(value);
-                if (end == text.Length)
-                    break;
-                start = end + 1;
+                numbers.Add(value);
             }
-            return parts.ToArray();
+            numeric = numbers.ToArray();
+            prerelease = labels.Length == 0 ? Array.Empty<string>() : CutAtDots(labels);
+        }
+
+        // 预发布标记的比较照 semver 规范：没有标记的正式版最大；点分标识符逐个比，
+        // 纯数字标识符按数值比（所以 beta.2 小于 beta.10）且永远小于含字母的标识符；前面全相等时标识符少的在前。
+        private static int ComparePrerelease(string[] left, string[] right)
+        {
+            if (left.Length == 0 || right.Length == 0)
+                return left.Length == right.Length ? 0 : left.Length == 0 ? 1 : -1;
+            for (int index = 0; index < Math.Min(left.Length, right.Length); index++)
+            {
+                bool leftNumber = TryReadNumber(left[index], out int x);
+                bool rightNumber = TryReadNumber(right[index], out int y);
+                int result = leftNumber && rightNumber
+                    ? x.CompareTo(y)
+                    : leftNumber != rightNumber
+                        ? (leftNumber ? -1 : 1)
+                        : string.CompareOrdinal(left[index], right[index]);
+                if (result != 0)
+                    return result;
+            }
+            return left.Length.CompareTo(right.Length);
+        }
+
+        // 更新源的 tag 必须是严格 semver：三段十进制数字（多段时不许前导零），可选的 -预发布 与 +构建元数据，
+        // 标识符只许 [0-9A-Za-z-] 且不许有空段。这套规则宿主依赖比较用的正则（XWModLoadPlanVersion）完全一致，
+        // 所以将来别的 Mod 按版本区间依赖音乐盒时，读到的也是同一个答案。
+        private static bool IsStrictSemVer(string version)
+        {
+            string text = (version ?? "").Trim().TrimStart('v', 'V');
+            if (text.Length == 0 || text.Length > 256)
+                return false;
+            int plus = text.IndexOf('+');
+            string build = plus < 0 ? "" : text.Substring(plus + 1);
+            if (plus >= 0)
+                text = text.Substring(0, plus);
+            int hyphen = text.IndexOf('-');
+            string prerelease = hyphen < 0 ? "" : text.Substring(hyphen + 1);
+            if (hyphen >= 0)
+                text = text.Substring(0, hyphen);
+
+            string[] core = CutAtDots(text);
+            if (core.Length != 3 || !core.All(IsVersionNumber))
+                return false;
+            // 按分隔符在不在来验，而不是按内容长不长：`1.2.3-`、`1.2.3+` 这种空尾巴同样不规范。
+            if (hyphen >= 0 && !IsIdentifierList(prerelease))
+                return false;
+            return plus < 0 || IsIdentifierList(build);
+        }
+
+        // 主/次/补丁那一段：全数字，且不许「01」这种前导零写法。
+        private static bool IsVersionNumber(string text)
+        {
+            return text.Length > 0
+                && !(text.Length > 1 && text[0] == '0')
+                && text.All(char.IsAsciiDigit);
+        }
+
+        // 预发布 / 构建元数据的点分标识符列表：每段非空、只用 ASCII 字母数字和 '-'，纯数字段同样不许前导零。
+        private static bool IsIdentifierList(string text)
+        {
+            return CutAtDots(text).All(item => item.Length > 0 && item.All(IsIdentifierChar)
+                && !(item.All(char.IsAsciiDigit) && item.Length > 1 && item[0] == '0'));
+        }
+
+        private static bool IsIdentifierChar(char value) =>
+            (value >= '0' && value <= '9') || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '-';
+
+        // 按 '.' 切段（不用 Split，理由见 ParseSemVer）。
+        private static string[] CutAtDots(string text)
+        {
+            var items = new List<string>();
+            int start = 0;
+            while (true)
+            {
+                int dot = text.IndexOf('.', start);
+                if (dot < 0)
+                {
+                    items.Add(text.Substring(start));
+                    break;
+                }
+                items.Add(text.Substring(start, dot - start));
+                start = dot + 1;
+            }
+            return items.ToArray();
+        }
+
+        private static bool TryReadNumber(string token, out int value)
+        {
+            value = 0;
+            if (token.Length == 0)
+                return false;
+            for (int index = 0; index < token.Length; index++)
+            {
+                if (!char.IsAsciiDigit(token[index]))
+                    return false;
+                long next = value * 10L + (token[index] - '0');
+                if (next > int.MaxValue)
+                    return false;
+                value = (int)next;
+            }
+            return true;
         }
 
         // 桥接游戏的统一更新提醒（宿主的 XWModRuntimeContext.Updates）：多个 Mod 的更新由游戏

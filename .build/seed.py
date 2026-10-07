@@ -4,7 +4,7 @@ proj = pathlib.Path(__file__).resolve().parents[1]
 man_path = proj / "mod.json"
 data = json.loads(man_path.read_text(encoding="utf-8"))
 
-lines = (proj / "config" / "changelog.txt").read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
+lines = (proj / "changelog.txt").read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
 end = len(lines)
 while end > 1 and lines[end - 1].strip() == "":
     end -= 1
