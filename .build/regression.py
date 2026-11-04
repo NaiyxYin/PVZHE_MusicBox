@@ -31,6 +31,8 @@ body = "\n".join([
 lookup_start = player_source.index("        private static int FindTrackIndex")
 lookup_end = player_source.index("        private sealed partial class MenuPlayer", lookup_start)
 body += player_source[lookup_start:lookup_end]
+order_source = (proj / "Scripts/MusicBoxPlaybackOrder.cs").read_text(encoding="utf-8")
+body += order_source[order_source.index("        private static int PlaylistNext"):order_source.index("        private sealed partial class MenuPlayer")]
 program = r'''
 using System;
 using System.IO;
@@ -40,6 +42,11 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+static class GD
+{
+    static readonly Random random = new(131);
+    public static uint Randi() => (uint)random.Next();
+}
 static class ProjectSettings
 {
     public static string Root;
@@ -141,6 +148,51 @@ __BODY__
         Test("track-lookup-null-selection", () => Require(FindTrackIndex(new[] { "one" }, null) == -1));
         Test("player-visibility-false", () => { Read("{\"values\":{\"showMenuPlayer\":false}}"); Require(subject._panelBool["showMenuPlayer"] == false); });
         Test("player-visibility-true", () => { Read("{\"values\":{\"showMenuPlayer\":true}}"); Require(subject._panelBool["showMenuPlayer"]); });
+        Test("single-repeat-natural-finish", () => Require(FinishedTrack(3, 1, "loop") == 1));
+        Test("single-repeat-manual-navigation", () => Require(PlaylistNext(3, 1, "loop", 1) == 2 && PlaylistNext(3, 1, "loop", -1) == 0));
+        Test("single-repeat-manual-wrap", () => Require(PlaylistNext(3, 2, "loop", 1) == 0 && PlaylistNext(3, 0, "loop", -1) == 2));
+        Test("ordered-finish-boundaries", () => Require(FinishedTrack(3, 2, "sequence") == -1 && FinishedTrack(3, 0, "reverse") == -1));
+        Test("empty-playlist", () => Require(FinishedTrack(0, -1, "loop") == -1 && PlaylistNext(0, -1, "shuffle", 1) == -1));
+        Test("shuffle-history-roundtrip", () => {
+            var h = new PlaybackHistory(); string[] songs = { "A", "B", "C" }; string current = "A";
+            var visited = new List<string> { current };
+            for (int i = 0; i < 12; i++) {
+                int n = h.Next(songs, current, "shuffle", 1, "menu", "v1");
+                Require(songs[n] != current); current = songs[n]; h.Commit(current); visited.Add(current);
+            }
+            for (int i = visited.Count - 2; i >= 0; i--) {
+                int n = h.Next(songs, current, "shuffle", -1, "menu", "v1");
+                Require(songs[n] == visited[i]); current = songs[n]; h.Commit(current);
+            }
+            Require(h.Next(songs, current, "shuffle", -1, "menu", "v1") == -1);
+            for (int i = 1; i < visited.Count; i++) {
+                int n = h.Next(songs, current, "shuffle", 1, "menu", "v1");
+                Require(songs[n] == visited[i]); current = songs[n]; h.Commit(current);
+            }
+        });
+        Test("shuffle-failed-save-does-not-move-history", () => {
+            var h = new PlaybackHistory(); string[] songs = { "A", "B", "C" };
+            int n = h.Next(songs, "A", "shuffle", 1, "menu", "v1"); h.Commit(songs[n]); string current = songs[n];
+            Require(h.Next(songs, current, "shuffle", -1, "menu", "v1") == 0);
+            Require(h.Next(songs, current, "shuffle", -1, "menu", "v1") == 0);
+            h.Commit("A"); Require(songs[h.Next(songs, "A", "shuffle", 1, "menu", "v1")] == current);
+        });
+        Test("shuffle-reset-on-library-context-mode-or-external-selection", () => {
+            string[] songs = { "A", "B", "C" };
+            foreach (string change in new[] { "library", "context", "mode", "selection", "reset" }) {
+                var h = new PlaybackHistory(); int n = h.Next(songs, "A", "shuffle", 1, "menu", "v1"); h.Commit(songs[n]);
+                string current = songs[n];
+                if (change == "mode") { h.Next(songs, current, "sequence", 1, "menu", "v1"); }
+                if (change == "reset") h.Reset();
+                Require(h.Next(songs, change == "selection" ? "A" : current, "shuffle", -1,
+                    change == "context" ? "shop" : "menu", change == "library" ? "v2" : "v1") == -1);
+            }
+        });
+        Test("shuffle-single-track", () => {
+            var h = new PlaybackHistory(); string[] songs = { "A" };
+            Require(h.Next(songs, "A", "shuffle", 1, "menu", "v1") == 0); h.Commit("A");
+            Require(h.Next(songs, "A", "shuffle", -1, "menu", "v1") == -1);
+        });
         Console.WriteLine($"Managed regression: {count - bad}/{count} PASS");
         return bad == 0 ? 0 : 1;
     }

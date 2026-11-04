@@ -186,8 +186,8 @@ namespace MusicBoxMod
                 MakeLabel(details, "音量", 12, new Vector2(16, 212), new Vector2(34, 22), "97aaa8");
                 volume = new HSlider { Position = new Vector2(56, 210), Size = new Vector2(152, 24), MinValue = 0, MaxValue = 1, Step = .01, Value = 1 };
                 details.AddChild(volume); StyleSlider(volume); volume.ValueChanged += value => { gain = (float)value; ApplyVolume(); };
-                orderSelector = new OptionButton { Position = new Vector2(236, 208), Size = new Vector2(84, 28), FitToLongestItem = false };
-                foreach (string label in new[] { "顺序", "倒序", "乱序", "循环" }) orderSelector.AddItem(label);
+                orderSelector = new OptionButton { Position = new Vector2(214, 208), Size = new Vector2(106, 28), FitToLongestItem = false };
+                foreach (string label in new[] { "顺序播放", "倒序播放", "随机播放", "单曲循环" }) orderSelector.AddItem(label);
                 StyleButton(orderSelector, false); details.AddChild(orderSelector); orderSelector.ItemSelected += SetOrder;
                 status = MakeLabel(details, "切歌直接保存至当前界面配置", 11, new Vector2(16, 240), new Vector2(304, 18), "8fb8aa");
                 status.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
@@ -245,7 +245,7 @@ namespace MusicBoxMod
             }
             public void Suspend() { CancelGesture(); Release(); active = false; }
             public void ResetPlayback()
-            { Release(); choice = null; resumePosition = 0; paused = false; blocked = false; libraryStamp = ""; }
+            { Release(); playbackHistory.Reset(); choice = null; resumePosition = 0; paused = false; blocked = false; libraryStamp = ""; }
             public void RefreshVisibility()
             {
                 bool show = owner.MenuPlayerVisible();
@@ -369,26 +369,30 @@ namespace MusicBoxMod
                     if (OwnsPlayback) player.StreamPaused = wasPaused;
                 }
             }
-            private void SelectTrack(long index)
+            private void SelectTrack(long index) => TrySelectTrack(index, false);
+            private bool TrySelectTrack(long index, bool navigation, bool automatic = false)
             {
-                if (updating || !CanInteract()) return;
+                if (updating || (automatic ? !Available() : !CanInteract())) return false;
                 string next = index > 0 && index <= library.Length ? library[index - 1] : null;
                 if (!owner.TrySaveMenuTrack(next ?? OffOption, out string message, context?.Setting))
                 {
                     tracks.Select(FindTrackIndex(library, choice) + 1); status.Text = "未保存：" + message;
-                    owner.WarnOnce("播放器保存 " + message, status.Text); return;
+                    owner.WarnOnce("播放器保存 " + message, status.Text); return false;
                 }
+                if (navigation) playbackHistory.Commit(next); else playbackHistory.Reset();
                 paused = false; blocked = false; startRequested = true; Tick();
                 if (OwnsPlayback && !player.Playing) { playlistEnded = false; player.Play(0); player.StreamPaused = false; }
                 status.Text = message;
+                return true;
             }
             private void Step(int direction)
             {
                 if (library.Length == 0) { status.Text = "BGM 目录尚无可播放的曲目"; hint.Text = "暂无曲目"; return; }
-                int index = FindTrackIndex(library, choice);
-                int next = PlaylistNext(library.Length, index, owner.ReadPlaybackOrder(), direction);
-                if (next < 0) { status.Text = "已到列表边界"; return; }
-                tracks.Select(next + 1); SelectTrack(next + 1);
+                if (!CanInteract()) return;
+                RefreshLibrary();
+                int next = playbackHistory.Next(library, choice, owner.ReadPlaybackOrder(), direction, context.Setting, libraryStamp);
+                if (next < 0) { status.Text = owner.ReadPlaybackOrder() == "shuffle" ? "没有更早的播放记录" : "已到列表边界"; return; }
+                tracks.Select(next + 1); TrySelectTrack(next + 1, true);
             }
             private void TogglePause()
             {
