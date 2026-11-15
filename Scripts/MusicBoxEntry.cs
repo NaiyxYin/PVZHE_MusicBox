@@ -53,7 +53,7 @@ namespace MusicBoxMod
             if (_androidBgmRoot != null) return _androidBgmRoot;
             if (!Engine.HasSingleton("AndroidRuntime")) throw new IOException("AndroidRuntime 不可用，无法定位 MusicBox 目录。");
             var activity = Engine.GetSingleton("AndroidRuntime").Call("getActivity").AsGodotObject() as JavaObject;
-            var files = activity?.Call("getExternalFilesDir", default(Variant)).AsGodotObject() as JavaObject;
+            var files = activity?.Call("getExternalCacheDir").AsGodotObject() as JavaObject;
             var data = files?.Call("getParentFile").AsGodotObject() as JavaObject;
             string root = data?.Call("getAbsolutePath").AsString();
             if (string.IsNullOrEmpty(root)) throw new IOException("安卓应用外部数据目录不可用，无法定位 MusicBox 目录。");
@@ -1357,7 +1357,7 @@ namespace MusicBoxMod
         // 代价：包体哈希变了，本局 Mod 管理会标成「正在使用旧版本，重启后更新」，点「重启并应用」即恢复。
         private void SyncPackageDeclarations(string reason)
         {
-            if (_context == null || _context.IsAndroid)
+            if (_context == null)
                 return;
 
             List<string> tracks = _slots.Keys

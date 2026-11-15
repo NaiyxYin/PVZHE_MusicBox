@@ -191,6 +191,7 @@ namespace MusicBoxMod
                 StyleButton(orderSelector, false); details.AddChild(orderSelector); orderSelector.ItemSelected += SetOrder;
                 status = MakeLabel(details, "切歌直接保存至当前界面配置", 11, new Vector2(16, 240), new Vector2(304, 18), "8fb8aa");
                 status.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+                ConfigureAndroidSelector(tracks); ConfigureAndroidSelector(orderSelector);
                 tree = parent.GetTree(); window = parent.GetWindow();
                 parent.Resized += OnParentResized; window.FocusExited += CancelGesture;
                 InstallPointerIsolation(root);
@@ -243,7 +244,7 @@ namespace MusicBoxMod
                 startRequested = false;
                 transitioning = true; Suspend(); root.Hide();
             }
-            public void Suspend() { CancelGesture(); Release(); active = false; }
+            public void Suspend() { CloseAndroidChoices(); CancelGesture(); Release(); active = false; }
             public void ResetPlayback(bool resetHistory = true)
             { Release(); if (resetHistory) playbackHistory.Reset(); choice = null; resumePosition = 0; paused = false; blocked = false; libraryStamp = ""; }
             public void RefreshVisibility()
@@ -277,6 +278,7 @@ namespace MusicBoxMod
                     if (!visibleSetting) return;
                     root.Show(); RefreshLibrary();
                     bool interactive = CanInteract();
+                    if (!interactive) CloseAndroidChoices();
                     root.ProcessMode = interactive ? Node.ProcessModeEnum.Always : Node.ProcessModeEnum.Disabled;
                     var dialogCanvas = DialogManager.Instance?.GetNodeOrNull<CanvasLayer>("DialogLayer");
                     int modalLayer = dialogCanvas?.Layer ?? 100;
@@ -320,6 +322,7 @@ namespace MusicBoxMod
                 string stamp = owner._musicStamp;
                 if (libraryStamp != stamp || tracks.ItemCount == 0)
                 {
+                    CloseAndroidChoices();
                     libraryStamp = stamp; library = owner._slots.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
                     tracks.Clear(); tracks.AddItem("原版（保存为不替换）"); foreach (string name in library) tracks.AddItem(name);
                 }
@@ -452,6 +455,7 @@ namespace MusicBoxMod
             }
             private void SetExpanded(bool value, bool instant = false)
             {
+                if (!value) CloseAndroidChoices();
                 CancelGesture(); expanded = value; if (instant) openProgress = value ? 1 : 0; Layout();
             }
             private void DiscInput(InputEvent input)
@@ -511,7 +515,7 @@ namespace MusicBoxMod
                 Math.Clamp(p.Y, 0, Math.Max(0, parent.Size.Y - root.Size.Y)));
             private void CancelGesture()
             { gesture.Cancel(); ReleaseInputShield(); if (!disposed) { disc.MouseDefaultCursorShape = Control.CursorShape.PointingHand; Layout(); } }
-            private void OnParentResized() { CancelGesture(); Layout(); }
+            private void OnParentResized() { CloseAndroidChoices(); CancelGesture(); Layout(); }
             private void Layout()
             {
                 if (disposed || gesture.Dragging) return;
@@ -535,7 +539,7 @@ namespace MusicBoxMod
             public void Dispose()
             {
                 if (disposed) return;
-                ReleaseInputShield(); Release(); gesture.Cancel(); disposed = true;
+                CloseAndroidChoices(); ReleaseInputShield(); Release(); gesture.Cancel(); disposed = true;
                 tree.ProcessFrame -= Tick;
                 if (GodotObject.IsInstanceValid(window)) window.FocusExited -= CancelGesture;
                 if (SceneManager.Instance != null) SceneManager.Instance.OnSceneChange -= SceneChanging;

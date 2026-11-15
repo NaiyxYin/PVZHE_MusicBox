@@ -100,6 +100,8 @@ transport = transport.replace("__METHODS__", "\n".join([
     method(player_source, "            private void Step"),
     method(order_source, "            private void AdvancePlaylist"),
 ]))
+gesture_source = (proj / "Scripts/MusicBoxPlayerGesture.cs").read_text(encoding="utf-8")
+body += method(gesture_source, "        private sealed class PlayerDragGesture")
 body += transport
 body += method(source, "        private static string BgmRootPath")
 if "--legacy-rebind" in sys.argv:
@@ -113,6 +115,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+struct Vector2
+{
+    public float X, Y;
+    public Vector2(float x, float y) { X = x; Y = y; }
+    public static Vector2 operator +(Vector2 a, Vector2 b) => new(a.X + b.X, a.Y + b.Y);
+    public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.X - b.X, a.Y - b.Y);
+}
 static class GD
 {
     static readonly Random random = new(131);
@@ -135,7 +144,8 @@ sealed class JavaValue
 sealed class JavaObject
 {
     public JavaValue Call(string method, params Variant[] args)
-        => new(method == "getAbsolutePath" ? Engine.DataRoot : Engine.MissingDirectory && method == "getExternalFilesDir" ? null : new JavaObject());
+        => method == "getExternalFilesDir" ? throw new ArgumentException("Nil is not a Java String")
+            : new(method == "getAbsolutePath" ? Engine.DataRoot : Engine.MissingDirectory && method == "getExternalCacheDir" ? null : new JavaObject());
 }
 static class Engine
 {
@@ -333,6 +343,34 @@ __BODY__
             OS.Name = "Android"; Engine.MissingDirectory = true; _androidBgmRoot = null;
             bool rejected = false; try { BgmRootPath(); } catch (IOException) { rejected = true; }
             OS.Name = "Windows"; Engine.MissingDirectory = false; Require(rejected);
+        });
+        Test("list-tap-selects", () => {
+            var gesture = new PlayerDragGesture();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            Require(!gesture.Move(new(43, 53), out _) && gesture.End());
+        });
+        Test("list-vertical-swipe-does-not-select", () => {
+            var gesture = new PlayerDragGesture();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            Require(gesture.Move(new(40, 20), out var delta) && delta.Y == -30 && !gesture.End());
+        });
+        Test("list-horizontal-swipe-does-not-select", () => {
+            var gesture = new PlayerDragGesture();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            Require(gesture.Move(new(60, 50), out _) && !gesture.End());
+        });
+        Test("list-swipe-return-to-origin-does-not-select", () => {
+            var gesture = new PlayerDragGesture();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            gesture.Move(new(40, 10), out _); gesture.Move(new(40, 50), out _);
+            Require(!gesture.End());
+        });
+        Test("list-tap-after-swipe-resets-state", () => {
+            var gesture = new PlayerDragGesture();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            gesture.Move(new(40, 10), out _); gesture.End();
+            gesture.Begin(new(40, 50), new(0, 0), new(8, 8));
+            Require(gesture.End());
         });
         Console.WriteLine($"Managed regression: {count - bad}/{count} PASS");
         return bad == 0 ? 0 : 1;
