@@ -244,8 +244,8 @@ namespace MusicBoxMod
                 transitioning = true; Suspend(); root.Hide();
             }
             public void Suspend() { CancelGesture(); Release(); active = false; }
-            public void ResetPlayback()
-            { Release(); playbackHistory.Reset(); choice = null; resumePosition = 0; paused = false; blocked = false; libraryStamp = ""; }
+            public void ResetPlayback(bool resetHistory = true)
+            { Release(); if (resetHistory) playbackHistory.Reset(); choice = null; resumePosition = 0; paused = false; blocked = false; libraryStamp = ""; }
             public void RefreshVisibility()
             {
                 bool show = owner.MenuPlayerVisible();

@@ -17,7 +17,7 @@ namespace MusicBoxMod
     //   enableMenuGroup  → menuMainMenu / menuShop
     //   enableLevelGroup → menuLevelChoose / menuAlmanac
     // 音频一律从存档目录按**文件名约定**取，包内不携带任何音频：
-    //   BGM 根目录 user://Seeleyuwo/rez/BGM/（可自由建子文件夹分类，递归扫描）：
+    //   BGM 根目录：桌面 user://MusicBox/；安卓 Android/data/<游戏包名>/MusicBox/，递归扫描：
     //     任意音频文件名都是一个可选曲目，值就是文件名（不含扩展名）；
     //     文件名正好是战斗 BGM 键（Grasswalk 等，见 BattleBgmKeys）时额外覆盖该键。
     //     主菜单/商店/选关/图鉴四项在面板里是下拉：mod.json 里只声明「原版（不替换）」这一项
@@ -44,7 +44,21 @@ namespace MusicBoxMod
     // 游戏版本较旧没有这套通道时只在日志里说明，不自带弹窗）。任何失败都只在日志里说明，不打扰玩家。
     public sealed partial class MusicBoxEntry : IXWModRuntimeEntry
     {
-        private const string BgmRootVirtualPath = "user://Seeleyuwo/rez/BGM";
+        private const string BgmRootVirtualPath = "user://MusicBox";
+        private static string _androidBgmRoot;
+
+        private static string BgmRootPath()
+        {
+            if (OS.GetName() != "Android") return ProjectSettings.GlobalizePath(BgmRootVirtualPath);
+            if (_androidBgmRoot != null) return _androidBgmRoot;
+            if (!Engine.HasSingleton("AndroidRuntime")) throw new IOException("AndroidRuntime 不可用，无法定位 MusicBox 目录。");
+            var activity = Engine.GetSingleton("AndroidRuntime").Call("getActivity").AsGodotObject() as JavaObject;
+            var files = activity?.Call("getExternalFilesDir", default(Variant)).AsGodotObject() as JavaObject;
+            var data = files?.Call("getParentFile").AsGodotObject() as JavaObject;
+            string root = data?.Call("getAbsolutePath").AsString();
+            if (string.IsNullOrEmpty(root)) throw new IOException("安卓应用外部数据目录不可用，无法定位 MusicBox 目录。");
+            return _androidBgmRoot = Path.Combine(root, "MusicBox");
+        }
         private const string OffOption = "off";
         private const string MenuGroupSwitch = "enableMenuGroup";
         private const string LevelGroupSwitch = "enableLevelGroup";
@@ -324,7 +338,7 @@ namespace MusicBoxMod
             var overrides = new List<(string Key, AudioStream Stream)>();
             string stamp = MusicStamp();
 
-            string bgmDir = ProjectSettings.GlobalizePath(BgmRootVirtualPath);
+            string bgmDir = BgmRootPath();
             if (!Directory.Exists(bgmDir))
                 WarnOnce("目录不存在", $"BGM 目录不存在，全部界面保持原版：{bgmDir}");
 
@@ -550,7 +564,7 @@ namespace MusicBoxMod
         private static string MusicStamp()
         {
             var stamp = new StringBuilder();
-            foreach (string file in EnumerateAudioFiles(ProjectSettings.GlobalizePath(BgmRootVirtualPath)))
+            foreach (string file in EnumerateAudioFiles(BgmRootPath()))
                 stamp.Append(file.Length).Append(':').Append(file).Append(':').Append(AudioFileStamp(file)).Append(';');
             return stamp.ToString();
         }
@@ -587,7 +601,7 @@ namespace MusicBoxMod
                         WarnOnce("选曲屏蔽 " + screen + track + why, $"{track} 游戏读不了（{why}），界面 {screen} 保持原版。"
                                        + "转成 16-bit 立体声、64MB 以内的文件（ogg / mp3 最省事），重启游戏后重新选它。");
                     else
-                        WarnOnce("选曲缺失 " + screen + track, $"{BgmRootVirtualPath}（含子文件夹）下没有 {track}.*，界面 {screen} 保持原版。");
+                        WarnOnce("选曲缺失 " + screen + track, $"MusicBox 音乐目录（含子文件夹）下没有 {track}.*，界面 {screen} 保持原版。");
                     continue;
                 }
                 AudioStream stream = LoadAudio(file, loop: true);
@@ -724,7 +738,9 @@ namespace MusicBoxMod
 
         private void ApplyRegistrations(bool rebuildSelections = true)
         {
-            _menuPlayer?.ResetPlayback();
+            // Rebinding audio after a settings save must not erase shuffle navigation.
+            // History validates the mode, library and current selection on the next step.
+            _menuPlayer?.ResetPlayback(resetHistory: false);
             // 内容结构在宿主加载完 Mod 后就冻结了，重载时不能再注册新键；
             // 所以本模组占用的键一律原地改写 AUDIOS，并记下原版音频供还原。
             if (rebuildSelections)
@@ -1516,7 +1532,7 @@ namespace MusicBoxMod
             string parent = Path.GetDirectoryName(file);
             if (string.IsNullOrEmpty(parent))
                 return stem;
-            string relative = Path.GetRelativePath(ProjectSettings.GlobalizePath(BgmRootVirtualPath), parent);
+            string relative = Path.GetRelativePath(BgmRootPath(), parent);
             return string.IsNullOrEmpty(relative) || relative == "."
                 ? stem
                 : $"{stem}（{relative.Replace('\\', '/')}）";

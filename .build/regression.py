@@ -33,6 +33,77 @@ lookup_end = player_source.index("        private sealed partial class MenuPlaye
 body += player_source[lookup_start:lookup_end]
 order_source = (proj / "Scripts/MusicBoxPlaybackOrder.cs").read_text(encoding="utf-8")
 body += order_source[order_source.index("        private static int PlaylistNext"):order_source.index("        private sealed partial class MenuPlayer")]
+# Exercise actual transport methods with a synchronous settings-save/rebind callback.
+def method(text, signature):
+    start = text.index(signature)
+    opening = text.index("{", start)
+    depth = 1
+    end = opening + 1
+    while depth:
+        depth += (text[end] == "{") - (text[end] == "}")
+        end += 1
+    return text[start:end]
+
+transport = r'''
+    sealed class Transport
+    {
+        public readonly PlaybackHistory playbackHistory = new();
+        public string[] library = { "A", "B", "C" };
+        public string choice = "A", libraryStamp = "v1";
+        public bool updating = false, paused, blocked, startRequested, playlistEnded;
+        public float resumePosition;
+        public readonly Context context = new();
+        public readonly Owner owner;
+        readonly Control tracks = new(), status = new(), hint = new();
+        readonly Player player = new();
+        bool OwnsPlayback => false;
+        public Transport() { owner = new Owner(this); }
+        bool CanInteract() => true;
+        bool Available() => true;
+        void Release() { }
+        void RefreshLibrary() { choice = owner.current; libraryStamp = owner.stamp; }
+        void Tick() => RefreshLibrary();
+        public void Next() => Step(1);
+        public void Previous() => Step(-1);
+        public void Finish() => AdvancePlaylist();
+        public bool Select(int index) => TrySelectTrack(index, false);
+        public sealed class Context { public string Setting = "menu"; }
+        sealed class Control { public string Text; public void Select(long index) { } }
+        sealed class Player { public bool Playing = false, StreamPaused; public void Play(float position) { } }
+        public sealed class Owner
+        {
+            readonly Transport _menuPlayer;
+            public string current = "A", stamp = "v1", mode = "shuffle";
+            public bool failSave;
+            public Owner(Transport player) { _menuPlayer = player; }
+            public string ReadPlaybackOrder() => mode;
+            public void WarnOnce(string key, string message) { }
+            public bool TrySaveMenuTrack(string song, out string message, string setting)
+            {
+                message = "saved";
+                if (failSave) return false;
+                current = song;
+                Rebind();
+                return true;
+            }
+            public void Rebind() { __REBIND__ }
+        }
+__METHODS__
+    }
+'''
+# Use the actual rebind statement from ApplyRegistrations, not a test-only reset policy.
+rebind = source[source.index("        private void ApplyRegistrations"):].split("_menuPlayer?", 1)[1].split(";", 1)[0]
+transport = transport.replace("__REBIND__", "_menuPlayer?" + rebind + ";")
+transport = transport.replace("__METHODS__", "\n".join([
+    method(player_source, "            public void ResetPlayback"),
+    method(player_source, "            private bool TrySelectTrack"),
+    method(player_source, "            private void Step"),
+    method(order_source, "            private void AdvancePlaylist"),
+]))
+body += transport
+body += method(source, "        private static string BgmRootPath")
+if "--legacy-rebind" in sys.argv:
+    body = body.replace("_menuPlayer?.ResetPlayback(resetHistory: false);", "_menuPlayer?.ResetPlayback();")
 program = r'''
 using System;
 using System.IO;
@@ -52,9 +123,31 @@ static class ProjectSettings
     public static string Root;
     public static string GlobalizePath(string path) => Root;
 }
+static class OS { public static string Name = "Windows"; public static string GetName() => Name; }
+struct Variant { }
+sealed class JavaValue
+{
+    readonly object value;
+    public JavaValue(object value) { this.value = value; }
+    public object AsGodotObject() => value;
+    public string AsString() => value as string;
+}
+sealed class JavaObject
+{
+    public JavaValue Call(string method, params Variant[] args)
+        => new(method == "getAbsolutePath" ? Engine.DataRoot : Engine.MissingDirectory && method == "getExternalFilesDir" ? null : new JavaObject());
+}
+static class Engine
+{
+    public static bool Available = true, MissingDirectory;
+    public static string DataRoot = "/storage/emulated/0/Android/data/example.game";
+    public static bool HasSingleton(string name) => Available;
+    public static JavaObject GetSingleton(string name) => new();
+}
 class Regression
 {
-    const string BgmRootVirtualPath = "unused", OffOption = "off";
+    const string BgmRootVirtualPath = "user://MusicBox", OffOption = "off";
+    private static string _androidBgmRoot;
     const string MenuGroupSwitch = "enableMenuGroup", LevelGroupSwitch = "enableLevelGroup";
     const long MaxFlacDecodedPcmBytes = 128L * 1024 * 1024;
     static readonly string[] AudioExtensions = { ".wav", ".ogg", ".mp3", ".flac" };
@@ -192,6 +285,54 @@ __BODY__
             var h = new PlaybackHistory(); string[] songs = { "A" };
             Require(h.Next(songs, "A", "shuffle", 1, "menu", "v1") == 0); h.Commit("A");
             Require(h.Next(songs, "A", "shuffle", -1, "menu", "v1") == -1);
+        });
+        Test("transport-manual-shuffle-save-rebind-roundtrip", () => {
+            var t = new Transport(); var visited = new List<string> { t.choice };
+            for (int i = 0; i < 12; i++) { t.Next(); Require(t.choice != visited.Last()); visited.Add(t.choice); }
+            for (int i = visited.Count - 2; i >= 0; i--) { t.Previous(); Require(t.choice == visited[i]); }
+            for (int i = 1; i < visited.Count; i++) { t.Next(); Require(t.choice == visited[i]); }
+        });
+        Test("transport-natural-shuffle-save-rebind-roundtrip", () => {
+            var t = new Transport(); t.Finish(); string next = t.choice; Require(next != "A");
+            t.Previous(); Require(t.choice == "A"); t.Next(); Require(t.choice == next);
+        });
+        Test("transport-save-failure-keeps-history", () => {
+            var t = new Transport(); t.Next(); string next = t.choice;
+            t.owner.failSave = true; t.Previous(); Require(t.choice == next);
+            t.owner.failSave = false; t.Previous(); Require(t.choice == "A");
+        });
+        Test("transport-direct-selection-resets-history", () => {
+            var t = new Transport(); t.Next(); Require(t.Select(3)); t.Previous(); Require(t.choice == "C");
+        });
+        Test("transport-context-reset-clears-history", () => {
+            var t = new Transport(); t.Next(); string next = t.choice;
+            t.ResetPlayback(); t.Previous(); Require(t.choice == next);
+        });
+        Test("transport-library-mode-external-selection-invalidate-history", () => {
+            foreach (string change in new[] { "library", "mode", "selection" }) {
+                var t = new Transport(); t.Next(); string next = t.choice;
+                if (change == "library") t.owner.stamp = "v2";
+                if (change == "mode") { t.owner.mode = "sequence"; t.Next(); t.owner.mode = "shuffle"; next = t.choice; }
+                if (change == "selection") { t.owner.current = "A"; next = "A"; }
+                t.Previous(); Require(t.choice == next);
+            }
+        });
+        Test("desktop-musicbox-root", () => { Require(BgmRootVirtualPath == "user://MusicBox" && BgmRootPath() == root); });
+        Test("android-app-data-musicbox-root-and-cache", () => {
+            OS.Name = "Android"; _androidBgmRoot = null;
+            Require(BgmRootPath() == Path.Combine(Engine.DataRoot, "MusicBox"));
+            Engine.Available = false; Require(BgmRootPath() == Path.Combine(Engine.DataRoot, "MusicBox"));
+            Engine.Available = true; OS.Name = "Windows"; _androidBgmRoot = null;
+        });
+        Test("android-unavailable-runtime-does-not-fallback", () => {
+            OS.Name = "Android"; Engine.Available = false; _androidBgmRoot = null;
+            bool rejected = false; try { BgmRootPath(); } catch (IOException) { rejected = true; }
+            OS.Name = "Windows"; Engine.Available = true; Require(rejected);
+        });
+        Test("android-unavailable-storage-does-not-fallback", () => {
+            OS.Name = "Android"; Engine.MissingDirectory = true; _androidBgmRoot = null;
+            bool rejected = false; try { BgmRootPath(); } catch (IOException) { rejected = true; }
+            OS.Name = "Windows"; Engine.MissingDirectory = false; Require(rejected);
         });
         Console.WriteLine($"Managed regression: {count - bad}/{count} PASS");
         return bad == 0 ? 0 : 1;
